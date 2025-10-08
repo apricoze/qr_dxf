@@ -4,6 +4,8 @@ const previewMessage = document.getElementById("preview-message");
 const errorTemplate = document.getElementById("error-template");
 const iconInput = document.getElementById("icon");
 const clearIconButton = document.getElementById("clear-icon");
+const iconSizeInput = document.getElementById("icon-size");
+const iconSizeValue = document.getElementById("icon-size-value");
 
 let previewTimeout;
 let iconDataUrl = null;
@@ -43,6 +45,11 @@ function buildRequestPayload() {
     border: formData.get("border") ?? 4,
     moduleSize: formData.get("moduleSize") ?? 1,
   };
+
+  const iconSize = Number(formData.get("iconSize"));
+  if (!Number.isNaN(iconSize)) {
+    payload.iconSize = iconSize;
+  }
 
   if (iconDataUrl) {
     payload.iconData = iconDataUrl;
@@ -140,6 +147,16 @@ form.addEventListener("submit", async (event) => {
 });
 
 window.addEventListener("DOMContentLoaded", () => {
+  if (iconSizeInput && iconSizeValue) {
+    const updateIconSizeValue = () => {
+      const value = Number(iconSizeInput.value);
+      iconSizeValue.textContent = Number.isFinite(value) ? `${value}%` : "";
+    };
+
+    iconSizeInput.addEventListener("input", updateIconSizeValue);
+    updateIconSizeValue();
+  }
+
   updatePreview();
 });
 

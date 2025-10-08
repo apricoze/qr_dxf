@@ -153,7 +153,7 @@ def fetch_favicon(url: str) -> Optional[bytes]:
     return content
 
 
-def add_icon_to_image(image: Image.Image, icon_bytes: bytes) -> Image.Image:
+def add_icon_to_image(image: Image.Image, icon_bytes: bytes, icon_scale: float) -> Image.Image:
     try:
         icon = Image.open(io.BytesIO(icon_bytes))
     except (OSError, ValueError):
@@ -163,7 +163,8 @@ def add_icon_to_image(image: Image.Image, icon_bytes: bytes) -> Image.Image:
     icon = icon.convert("RGBA")
 
     width, height = image.size
-    target_size = max(1, int(min(width, height) * 0.22))
+    clamped_scale = max(0.01, min(icon_scale, 0.8))
+    target_size = max(1, int(min(width, height) * clamped_scale))
     icon.thumbnail((target_size, target_size), Image.LANCZOS)
 
     icon_w, icon_h = icon.size
@@ -244,11 +245,19 @@ def create_app() -> Flask:
         if icon_bytes is None:
             icon_bytes = fetch_favicon(data)
 
+        try:
+            icon_size_percent = float(payload.get("iconSize", 22.0))
+        except (TypeError, ValueError):
+            return jsonify({"message": "アイコンサイズは数値で指定してください。"}), 400
+
+        if not 5.0 <= icon_size_percent <= 40.0:
+            return jsonify({"message": "アイコンサイズは5から40の間で指定してください。"}), 400
+
         qr_code = create_qr_code(data, error_correction, border)
         image = qr_code.make_image(fill_color="black", back_color="white").convert("RGBA")
 
         if icon_bytes:
-            image = add_icon_to_image(image, icon_bytes)
+            image = add_icon_to_image(image, icon_bytes, icon_size_percent / 100)
 
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
