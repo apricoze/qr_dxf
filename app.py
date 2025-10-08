@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 import ezdxf
 from flask import Flask, jsonify, render_template, request, send_file
-from PIL import Image
+from PIL import Image, ImageDraw
 import qrcode
 from qrcode.constants import ERROR_CORRECT_H, ERROR_CORRECT_L, ERROR_CORRECT_M, ERROR_CORRECT_Q
 
@@ -168,6 +168,14 @@ def add_icon_to_image(image: Image.Image, icon_bytes: bytes) -> Image.Image:
 
     icon_w, icon_h = icon.size
     position = ((width - icon_w) // 2, (height - icon_h) // 2)
+
+    padding = max(1, int(min(icon_w, icon_h) * 0.1))
+    left = max(0, position[0] - padding)
+    top = max(0, position[1] - padding)
+    right = min(width, position[0] + icon_w + padding)
+    bottom = min(height, position[1] + icon_h + padding)
+
+    ImageDraw.Draw(image).rectangle([(left, top), (right, bottom)], fill=(255, 255, 255, 255))
 
     image.paste(icon, position, mask=icon)
     return image
