@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import io
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 import ezdxf
 from flask import Flask, jsonify, render_template, request, send_file
+from PIL import Image
 import qrcode
 from qrcode.constants import ERROR_CORRECT_H, ERROR_CORRECT_L, ERROR_CORRECT_M, ERROR_CORRECT_Q
 
@@ -106,6 +112,67 @@ def matrix_to_dxf(matrix: Tuple[Tuple[bool, ...], ...], module_size: float) -> i
     return buffer
 
 
+def decode_data_url(data_url: str) -> Optional[bytes]:
+    if not data_url:
+        return None
+
+    if not data_url.startswith("data:"):
+        return None
+
+    try:
+        header, encoded = data_url.split(",", 1)
+    except ValueError:
+        return None
+
+    if "base64" not in header:
+        return None
+
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+
+
+def fetch_favicon(url: str) -> Optional[bytes]:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+
+    favicon_url = f"{parsed.scheme}://{parsed.netloc}/favicon.ico"
+    request = Request(favicon_url, headers={"User-Agent": "Mozilla/5.0"})
+
+    try:
+        with urlopen(request, timeout=5) as response:
+            content = response.read()
+    except (HTTPError, URLError, TimeoutError, ValueError, OSError):
+        return None
+
+    if not content or len(content) > 1_000_000:
+        return None
+
+    return content
+
+
+def add_icon_to_image(image: Image.Image, icon_bytes: bytes) -> Image.Image:
+    try:
+        icon = Image.open(io.BytesIO(icon_bytes))
+    except (OSError, ValueError):
+        return image
+
+    image = image.convert("RGBA")
+    icon = icon.convert("RGBA")
+
+    width, height = image.size
+    target_size = max(1, int(min(width, height) * 0.22))
+    icon.thumbnail((target_size, target_size), Image.LANCZOS)
+
+    icon_w, icon_h = icon.size
+    position = ((width - icon_w) // 2, (height - icon_h) // 2)
+
+    image.paste(icon, position, mask=icon)
+    return image
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
 
@@ -137,26 +204,44 @@ def create_app() -> Flask:
             mimetype="image/vnd.dxf",
         )
 
-    @app.get("/api/qr-preview")
+    @app.route("/api/qr-preview", methods=["GET", "POST"])
     def qr_preview():
-        data = (request.args.get("data") or "").strip()
+        if request.method == "GET":
+            payload = {key: value for key, value in request.args.items()}
+        else:
+            payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            payload = {}
+        data = (payload.get("data") or "").strip()
         if not data:
             return jsonify({"message": "入力テキストを指定してください。"}), 400
 
         try:
-            error_correction = ErrorCorrection(request.args.get("errorCorrection", "M"))
+            error_correction = ErrorCorrection(payload.get("errorCorrection", "M"))
         except ValueError:
             return jsonify({"message": "不明な誤り訂正レベルが指定されました。"}), 400
 
         try:
-            border = int(request.args.get("border", 4))
+            border = int(payload.get("border", 4))
         except (TypeError, ValueError):
             return jsonify({"message": "余白の値は整数で指定してください。"}), 400
         if border < 0:
             return jsonify({"message": "余白の値は0以上である必要があります。"}), 400
 
+        icon_bytes = None
+        icon_data_url = payload.get("iconData")
+        if isinstance(icon_data_url, str):
+            icon_bytes = decode_data_url(icon_data_url)
+
+        if icon_bytes is None:
+            icon_bytes = fetch_favicon(data)
+
         qr_code = create_qr_code(data, error_correction, border)
-        image = qr_code.make_image(fill_color="black", back_color="white")
+        image = qr_code.make_image(fill_color="black", back_color="white").convert("RGBA")
+
+        if icon_bytes:
+            image = add_icon_to_image(image, icon_bytes)
+
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         buffer.seek(0)
