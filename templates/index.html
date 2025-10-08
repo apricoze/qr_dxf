@@ -47,6 +47,20 @@
               アイコン画像
               <input type="file" id="icon" name="icon" accept="image/*" />
             </label>
+            <label for="icon-size" class="icon-size-control">
+              アイコンサイズ
+              <input
+                type="range"
+                id="icon-size"
+                name="iconSize"
+                min="5"
+                max="40"
+                step="1"
+                value="22"
+              />
+              <output id="icon-size-value" for="icon-size">22%</output>
+            </label>
+            <small class="icon-size-help">QRコードの短辺に対する割合を指定します。</small>
             <div class="icon-actions">
               <button type="button" id="clear-icon" class="secondary">アイコンをクリア</button>
               <small>指定しない場合はURLのファビコンが自動で使用されます。</small>

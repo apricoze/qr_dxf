@@ -44,3 +44,22 @@ textarea {
 .icon-actions small {
   color: var(--muted-color);
 }
+
+.icon-size-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.icon-size-control output {
+  align-self: flex-end;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.icon-size-help {
+  display: block;
+  margin-top: -0.25rem;
+  margin-bottom: 0.5rem;
+  color: var(--muted-color);
+}
