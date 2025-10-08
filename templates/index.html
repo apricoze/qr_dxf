@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QR DXF ツール</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <link rel="stylesheet" href="/static/css/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>QR DXF ツール</h1>
+        <p>テキストからQRコードを生成し、DXFファイルとしてダウンロードできます。</p>
+      </header>
+
+      <section>
+        <form id="qr-form">
+          <label for="data">テキスト</label>
+          <textarea id="data" name="data" rows="4" required placeholder="QRコードにしたいテキストを入力してください"></textarea>
+
+          <div class="grid">
+            <label for="error-correction">
+              誤り訂正レベル
+              <select id="error-correction" name="errorCorrection">
+                <option value="L">L (約7%復元)</option>
+                <option value="M" selected>M (約15%復元)</option>
+                <option value="Q">Q (約25%復元)</option>
+                <option value="H">H (約30%復元)</option>
+              </select>
+            </label>
+
+            <label for="border">
+              余白（モジュール数）
+              <input type="number" id="border" name="border" min="0" value="4" />
+            </label>
+
+            <label for="module-size">
+              モジュールサイズ（DXF単位）
+              <input type="number" id="module-size" name="moduleSize" min="0.1" step="0.1" value="1" />
+            </label>
+          </div>
+
+          <button type="submit" id="download-btn">DXFをダウンロード</button>
+        </form>
+      </section>
+
+      <section>
+        <header>
+          <h2>プレビュー</h2>
+          <p id="preview-message">入力内容に応じて自動で更新されます。</p>
+        </header>
+        <figure class="preview">
+          <img id="qr-preview" alt="QRコードのプレビュー" />
+        </figure>
+      </section>
+    </main>
+
+    <template id="error-template">
+      <dialog open>
+        <article>
+          <header>
+            <h3>エラー</h3>
+          </header>
+          <p class="error-message"></p>
+          <footer>
+            <button class="close-dialog" role="button">閉じる</button>
+          </footer>
+        </article>
+      </dialog>
+    </template>
+
+    <script src="/static/js/main.js" defer></script>
+  </body>
+</html>
