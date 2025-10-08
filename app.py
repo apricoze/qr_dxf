@@ -153,7 +153,12 @@ def fetch_favicon(url: str) -> Optional[bytes]:
     return content
 
 
-def add_icon_to_image(image: Image.Image, icon_bytes: bytes, icon_scale: float) -> Image.Image:
+def add_icon_to_image(
+    image: Image.Image,
+    icon_bytes: bytes,
+    icon_scale: float,
+    module_pixels: Optional[int] = None,
+) -> Image.Image:
     try:
         icon = Image.open(io.BytesIO(icon_bytes))
     except (OSError, ValueError):
@@ -163,6 +168,7 @@ def add_icon_to_image(image: Image.Image, icon_bytes: bytes, icon_scale: float) 
     icon = icon.convert("RGBA")
 
     width, height = image.size
+    module_pixels = max(1, int(module_pixels)) if module_pixels else None
     clamped_scale = max(0.01, min(icon_scale, 0.8))
     target_size = max(1, int(min(width, height) * clamped_scale))
     icon.thumbnail((target_size, target_size), Image.LANCZOS)
@@ -170,11 +176,25 @@ def add_icon_to_image(image: Image.Image, icon_bytes: bytes, icon_scale: float) 
     icon_w, icon_h = icon.size
     position = ((width - icon_w) // 2, (height - icon_h) // 2)
 
-    padding = max(1, int(min(icon_w, icon_h) * 0.1))
+    min_padding = module_pixels if module_pixels else 1
+    padding = max(min_padding, int(min(icon_w, icon_h) * 0.1))
     left = max(0, position[0] - padding)
     top = max(0, position[1] - padding)
     right = min(width, position[0] + icon_w + padding)
     bottom = min(height, position[1] + icon_h + padding)
+
+    if module_pixels:
+        def snap_lower(value: int) -> int:
+            return (value // module_pixels) * module_pixels
+
+        def snap_upper(value: int, limit: int) -> int:
+            snapped = ((value + module_pixels - 1) // module_pixels) * module_pixels
+            return min(limit, snapped)
+
+        left = snap_lower(left)
+        top = snap_lower(top)
+        right = snap_upper(right, width)
+        bottom = snap_upper(bottom, height)
 
     ImageDraw.Draw(image).rectangle([(left, top), (right, bottom)], fill=(255, 255, 255, 255))
 
@@ -257,7 +277,12 @@ def create_app() -> Flask:
         image = qr_code.make_image(fill_color="black", back_color="white").convert("RGBA")
 
         if icon_bytes:
-            image = add_icon_to_image(image, icon_bytes, icon_size_percent / 100)
+            image = add_icon_to_image(
+                image,
+                icon_bytes,
+                icon_size_percent / 100,
+                qr_code.box_size,
+            )
 
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
