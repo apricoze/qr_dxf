@@ -34,3 +34,13 @@ textarea {
 .error-dialog {
   width: min(420px, 90vw);
 }
+
+.icon-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.icon-actions small {
+  color: var(--muted-color);
+}

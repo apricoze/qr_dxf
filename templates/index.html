@@ -41,6 +41,18 @@
             </label>
           </div>
 
+          <fieldset>
+            <legend>中央アイコン</legend>
+            <label for="icon">
+              アイコン画像
+              <input type="file" id="icon" name="icon" accept="image/*" />
+            </label>
+            <div class="icon-actions">
+              <button type="button" id="clear-icon" class="secondary">アイコンをクリア</button>
+              <small>指定しない場合はURLのファビコンが自動で使用されます。</small>
+            </div>
+          </fieldset>
+
           <button type="submit" id="download-btn">DXFをダウンロード</button>
         </form>
       </section>

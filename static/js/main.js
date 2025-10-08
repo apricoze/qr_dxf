@@ -2,8 +2,11 @@ const form = document.getElementById("qr-form");
 const previewImage = document.getElementById("qr-preview");
 const previewMessage = document.getElementById("preview-message");
 const errorTemplate = document.getElementById("error-template");
+const iconInput = document.getElementById("icon");
+const clearIconButton = document.getElementById("clear-icon");
 
 let previewTimeout;
+let iconDataUrl = null;
 
 const ERROR_MESSAGES = {
   network: "サーバーとの通信に失敗しました。時間をおいて再度お試しください。",
@@ -34,17 +37,22 @@ function showError(message) {
 
 function buildRequestPayload() {
   const formData = new FormData(form);
-  return {
+  const payload = {
     data: formData.get("data") ?? "",
     errorCorrection: formData.get("errorCorrection") ?? "M",
     border: formData.get("border") ?? 4,
     moduleSize: formData.get("moduleSize") ?? 1,
   };
+
+  if (iconDataUrl) {
+    payload.iconData = iconDataUrl;
+  }
+
+  return payload;
 }
 
 async function updatePreview() {
   const payload = buildRequestPayload();
-  const params = new URLSearchParams(payload);
 
   if (!payload.data.trim()) {
     previewImage.src = "";
@@ -56,10 +64,13 @@ async function updatePreview() {
   previewMessage.textContent = "プレビューを生成しています…";
 
   try {
-    const response = await fetch(`/api/qr-preview?${params.toString()}`, {
+    const response = await fetch(`/api/qr-preview`, {
+      method: "POST",
       headers: {
         "Accept": "image/png",
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -129,5 +140,42 @@ form.addEventListener("submit", async (event) => {
 });
 
 window.addEventListener("DOMContentLoaded", () => {
+  updatePreview();
+});
+
+iconInput.addEventListener("change", () => {
+  const [file] = iconInput.files ?? [];
+
+  if (!file) {
+    iconDataUrl = null;
+    updatePreview();
+    return;
+  }
+
+  if (!file.type.startsWith("image/")) {
+    showError("画像ファイルを選択してください。");
+    iconInput.value = "";
+    iconDataUrl = null;
+    updatePreview();
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    iconDataUrl = typeof reader.result === "string" ? reader.result : null;
+    updatePreview();
+  });
+  reader.addEventListener("error", () => {
+    showError("画像の読み込みに失敗しました。別のファイルを試してください。");
+    iconInput.value = "";
+    iconDataUrl = null;
+    updatePreview();
+  });
+  reader.readAsDataURL(file);
+});
+
+clearIconButton.addEventListener("click", () => {
+  iconInput.value = "";
+  iconDataUrl = null;
   updatePreview();
 });
