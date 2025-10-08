@@ -1,0 +1,36 @@
+body {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at top, #f6f9fc, #e9eef5);
+}
+
+main.container {
+  max-width: 960px;
+  width: 100%;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.preview {
+  display: flex;
+  justify-content: center;
+  padding: 1.5rem;
+  background: var(--card-background-color);
+  border-radius: 0.75rem;
+  border: 1px solid var(--muted-border-color);
+  min-height: 280px;
+}
+
+.preview img {
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+
+.error-dialog {
+  width: min(420px, 90vw);
+}
