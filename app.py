@@ -106,8 +106,9 @@ def matrix_to_dxf(matrix: Tuple[Tuple[bool, ...], ...], module_size: float) -> i
                 close=True,
             )
 
-    buffer = io.BytesIO()
-    doc.write(stream=buffer)
+    text_buffer = io.StringIO()
+    doc.write(stream=text_buffer)
+    buffer = io.BytesIO(text_buffer.getvalue().encode("utf-8"))
     buffer.seek(0)
     return buffer
 
