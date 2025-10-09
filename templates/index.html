@@ -67,6 +67,52 @@
             </div>
           </fieldset>
 
+          <fieldset>
+            <legend>デザイン</legend>
+            <div class="design-controls">
+              <label for="body-corner-radius" class="design-control">
+                Body の角丸
+                <input
+                  type="range"
+                  id="body-corner-radius"
+                  name="bodyCornerRadius"
+                  min="0"
+                  max="50"
+                  step="1"
+                  value="0"
+                />
+                <output id="body-corner-radius-value" for="body-corner-radius">0%</output>
+              </label>
+              <label for="eye-frame-corner-radius" class="design-control">
+                Eye Frame の角丸
+                <input
+                  type="range"
+                  id="eye-frame-corner-radius"
+                  name="eyeFrameCornerRadius"
+                  min="0"
+                  max="50"
+                  step="1"
+                  value="0"
+                />
+                <output id="eye-frame-corner-radius-value" for="eye-frame-corner-radius">0%</output>
+              </label>
+              <label for="eye-ball-corner-radius" class="design-control">
+                Eye Ball の角丸
+                <input
+                  type="range"
+                  id="eye-ball-corner-radius"
+                  name="eyeBallCornerRadius"
+                  min="0"
+                  max="50"
+                  step="1"
+                  value="0"
+                />
+                <output id="eye-ball-corner-radius-value" for="eye-ball-corner-radius">0%</output>
+              </label>
+            </div>
+            <small class="design-help">0%は角丸なし、50%は円形になります。</small>
+          </fieldset>
+
           <button type="submit" id="download-btn">DXFをダウンロード</button>
         </form>
       </section>

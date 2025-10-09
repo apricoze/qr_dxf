@@ -3,25 +3,62 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable, List, Sequence, Tuple
+from typing import List, Sequence, Tuple
+
+from .matrix_utils import finder_pattern_modules
 
 
-def qr_matrix_to_dxf(matrix: Sequence[Sequence[bool]], module_size: float = 1.0,
-                     corner_radius: float = 0.0, layer: str = "QR") -> str:
+def qr_matrix_to_dxf(
+    matrix: Sequence[Sequence[bool]],
+    module_size: float = 1.0,
+    corner_radius: float = 0.0,
+    *,
+    body_corner_radius: float | None = None,
+    eye_frame_corner_radius: float | None = None,
+    eye_ball_corner_radius: float | None = None,
+    layer: str = "QR",
+) -> str:
     if module_size <= 0:
         raise ValueError("module_size must be positive")
     size = len(matrix)
     if size == 0:
         raise ValueError("matrix must not be empty")
-    radius = max(0.0, min(corner_radius, module_size / 2))
+
+    default_radius = _clamp_radius(module_size, corner_radius)
+    body_radius = _clamp_radius(
+        module_size, corner_radius if body_corner_radius is None else body_corner_radius
+    )
+    eye_frame_radius = _clamp_radius(
+        module_size,
+        body_radius if eye_frame_corner_radius is None else eye_frame_corner_radius,
+    )
+    eye_ball_radius = _clamp_radius(
+        module_size,
+        body_radius if eye_ball_corner_radius is None else eye_ball_corner_radius,
+    )
+
+    eye_frame_modules, eye_ball_modules = finder_pattern_modules(matrix)
     entities: List[str] = []
     for y, row in enumerate(matrix):
         for x, value in enumerate(row):
-            if value:
-                entities.extend(_module_polyline(x, y, size, module_size, radius, layer))
+            if not value:
+                continue
+            if (x, y) in eye_ball_modules:
+                radius = eye_ball_radius
+            elif (x, y) in eye_frame_modules:
+                radius = eye_frame_radius
+            else:
+                radius = body_radius if body_corner_radius is not None else default_radius
+            entities.extend(
+                _module_polyline(x, y, size, module_size, radius, layer)
+            )
     header = _dxf_header(layer)
     footer = _dxf_footer()
     return "\n".join(header + entities + footer) + "\n"
+
+
+def _clamp_radius(module_size: float, radius: float) -> float:
+    return max(0.0, min(radius, module_size / 2.0))
 
 
 def _module_polyline(x: int, y: int, size: int, module: float, radius: float, layer: str) -> List[str]:
