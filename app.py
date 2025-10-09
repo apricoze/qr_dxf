@@ -3,9 +3,10 @@ from __future__ import annotations
 import base64
 import binascii
 import io
+import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional, Tuple
+from typing import Any, Mapping, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -41,14 +42,13 @@ class QRRequest:
     module_size: float
 
     @classmethod
-    def from_request(cls, req: request) -> "QRRequest":
-        payload: Dict[str, str] = req.get_json(force=True, silent=True) or {}
-        data = (payload.get("data") or "").strip()
+    def from_payload(cls, payload: Mapping[str, Any]) -> "QRRequest":
+        data = (str(payload.get("data") or "")).strip()
         if not data:
             raise ValueError("入力テキストを指定してください。")
 
         try:
-            error_correction = ErrorCorrection(payload.get("errorCorrection", "M"))
+            error_correction = ErrorCorrection(str(payload.get("errorCorrection", "M")))
         except ValueError as exc:  # pragma: no cover - defensive programming
             raise ValueError("不明な誤り訂正レベルが指定されました。") from exc
 
@@ -72,6 +72,13 @@ class QRRequest:
             border=border,
             module_size=module_size,
         )
+
+    @classmethod
+    def from_request(cls, req: request) -> "QRRequest":
+        payload = req.get_json(force=True, silent=True) or {}
+        if not isinstance(payload, dict):
+            payload = {}
+        return cls.from_payload(payload)
 
 
 def create_qr_code(data: str, error_correction: ErrorCorrection, border: int) -> qrcode.QRCode:
@@ -110,6 +117,64 @@ def matrix_to_dxf(matrix: Tuple[Tuple[bool, ...], ...], module_size: float) -> i
     doc.write(stream=buffer)
     buffer.seek(0)
     return buffer
+
+
+def parse_icon_size(value: object, default: float = 22.0) -> float:
+    raw_value = value if value is not None else default
+    try:
+        icon_size = float(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("アイコンサイズは数値で指定してください。") from exc
+
+    if not 5.0 <= icon_size <= 40.0:
+        raise ValueError("アイコンサイズは5から40の間で指定してください。")
+
+    return icon_size
+
+
+def apply_icon_safe_zone(
+    matrix: Tuple[Tuple[bool, ...], ...], icon_scale: float, padding_ratio: float = 0.1
+) -> Tuple[Tuple[bool, ...], ...]:
+    if not matrix:
+        return matrix
+
+    size = len(matrix)
+    if size == 0:
+        return matrix
+
+    clamped_scale = max(0.01, min(icon_scale, 0.8))
+    icon_modules = max(1, int(round(size * clamped_scale)))
+    padding_modules = max(1, int(round(icon_modules * padding_ratio)))
+
+    center = size / 2.0
+    half_span = icon_modules / 2.0
+    start = max(0, int(math.floor(center - half_span - padding_modules)))
+    end = min(size, int(math.ceil(center + half_span + padding_modules)))
+
+    new_matrix = [list(row) for row in matrix]
+    for y in range(start, end):
+        for x in range(start, end):
+            new_matrix[y][x] = False
+
+    return tuple(tuple(row) for row in new_matrix)
+
+
+def matrix_to_image(matrix: Tuple[Tuple[bool, ...], ...], box_size: int = 10) -> Image.Image:
+    size = len(matrix)
+    image = Image.new("RGBA", (size * box_size, size * box_size), (255, 255, 255, 255))
+    draw = ImageDraw.Draw(image)
+
+    for y, row in enumerate(matrix):
+        for x, cell in enumerate(row):
+            if not cell:
+                continue
+            x0 = x * box_size
+            y0 = y * box_size
+            x1 = x0 + box_size
+            y1 = y0 + box_size
+            draw.rectangle([(x0, y0), (x1 - 1, y1 - 1)], fill=(0, 0, 0, 255))
+
+    return image
 
 
 def decode_data_url(data_url: str) -> Optional[bytes]:
@@ -191,8 +256,25 @@ def create_app() -> Flask:
 
     @app.post("/api/qr-dxf")
     def qr_dxf():
+        payload = request.get_json(force=True, silent=True) or {}
+        if not isinstance(payload, dict):
+            payload = {}
+
         try:
-            qr_request = QRRequest.from_request(request)
+            qr_request = QRRequest.from_payload(payload)
+        except ValueError as exc:
+            return jsonify({"message": str(exc)}), 400
+
+        icon_bytes = None
+        icon_data_url = payload.get("iconData")
+        if isinstance(icon_data_url, str):
+            icon_bytes = decode_data_url(icon_data_url)
+
+        if icon_bytes is None:
+            icon_bytes = fetch_favicon(qr_request.data)
+
+        try:
+            icon_size_percent = parse_icon_size(payload.get("iconSize"))
         except ValueError as exc:
             return jsonify({"message": str(exc)}), 400
 
@@ -202,6 +284,9 @@ def create_app() -> Flask:
             qr_request.border,
         )
         matrix = tuple(tuple(row) for row in qr_code.get_matrix())
+        if icon_bytes:
+            matrix = apply_icon_safe_zone(matrix, icon_size_percent / 100)
+
         buffer = matrix_to_dxf(matrix, qr_request.module_size)
         filename = "qr_code.dxf"
         if qr_request.data:
@@ -246,15 +331,16 @@ def create_app() -> Flask:
             icon_bytes = fetch_favicon(data)
 
         try:
-            icon_size_percent = float(payload.get("iconSize", 22.0))
-        except (TypeError, ValueError):
-            return jsonify({"message": "アイコンサイズは数値で指定してください。"}), 400
-
-        if not 5.0 <= icon_size_percent <= 40.0:
-            return jsonify({"message": "アイコンサイズは5から40の間で指定してください。"}), 400
+            icon_size_percent = parse_icon_size(payload.get("iconSize"))
+        except ValueError as exc:
+            return jsonify({"message": str(exc)}), 400
 
         qr_code = create_qr_code(data, error_correction, border)
-        image = qr_code.make_image(fill_color="black", back_color="white").convert("RGBA")
+        matrix = tuple(tuple(row) for row in qr_code.get_matrix())
+        if icon_bytes:
+            matrix = apply_icon_safe_zone(matrix, icon_size_percent / 100)
+
+        image = matrix_to_image(matrix)
 
         if icon_bytes:
             image = add_icon_to_image(image, icon_bytes, icon_size_percent / 100)
