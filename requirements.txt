@@ -1,3 +1,2 @@
 Flask==3.0.2
 qrcode[pil]==7.4.2
-ezdxf==1.4.2

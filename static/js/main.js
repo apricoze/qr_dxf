@@ -6,6 +6,20 @@ const iconInput = document.getElementById("icon");
 const clearIconButton = document.getElementById("clear-icon");
 const iconSizeInput = document.getElementById("icon-size");
 const iconSizeValue = document.getElementById("icon-size-value");
+const designControls = [
+  {
+    input: document.getElementById("body-corner-radius"),
+    output: document.getElementById("body-corner-radius-value"),
+  },
+  {
+    input: document.getElementById("eye-frame-corner-radius"),
+    output: document.getElementById("eye-frame-corner-radius-value"),
+  },
+  {
+    input: document.getElementById("eye-ball-corner-radius"),
+    output: document.getElementById("eye-ball-corner-radius-value"),
+  },
+];
 
 let previewTimeout;
 let iconDataUrl = null;
@@ -49,6 +63,21 @@ function buildRequestPayload() {
   const iconSize = Number(formData.get("iconSize"));
   if (!Number.isNaN(iconSize)) {
     payload.iconSize = iconSize;
+  }
+
+  const bodyCornerRadius = Number(formData.get("bodyCornerRadius"));
+  if (!Number.isNaN(bodyCornerRadius)) {
+    payload.bodyCornerRadius = bodyCornerRadius;
+  }
+
+  const eyeFrameCornerRadius = Number(formData.get("eyeFrameCornerRadius"));
+  if (!Number.isNaN(eyeFrameCornerRadius)) {
+    payload.eyeFrameCornerRadius = eyeFrameCornerRadius;
+  }
+
+  const eyeBallCornerRadius = Number(formData.get("eyeBallCornerRadius"));
+  if (!Number.isNaN(eyeBallCornerRadius)) {
+    payload.eyeBallCornerRadius = eyeBallCornerRadius;
   }
 
   if (iconDataUrl) {
@@ -156,6 +185,18 @@ window.addEventListener("DOMContentLoaded", () => {
     iconSizeInput.addEventListener("input", updateIconSizeValue);
     updateIconSizeValue();
   }
+
+  designControls.forEach(({ input, output }) => {
+    if (!input || !output) {
+      return;
+    }
+    const updateValue = () => {
+      const value = Number(input.value);
+      output.textContent = Number.isFinite(value) ? `${value}%` : "";
+    };
+    input.addEventListener("input", updateValue);
+    updateValue();
+  });
 
   updatePreview();
 });

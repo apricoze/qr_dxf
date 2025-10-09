@@ -3,18 +3,24 @@ from __future__ import annotations
 import base64
 import binascii
 import io
+import sys
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional, Tuple
+from pathlib import Path
+from typing import Dict, Mapping, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-import ezdxf
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+
 from flask import Flask, jsonify, render_template, request, send_file
 from PIL import Image, ImageDraw
 import qrcode
 from qrcode.constants import ERROR_CORRECT_H, ERROR_CORRECT_L, ERROR_CORRECT_M, ERROR_CORRECT_Q
+
+from qr_dxf.dxf import qr_matrix_to_dxf
+from qr_dxf.matrix_utils import finder_pattern_modules
 
 
 class ErrorCorrection(str, Enum):
@@ -39,11 +45,26 @@ class QRRequest:
     error_correction: ErrorCorrection
     border: int
     module_size: float
+    body_corner_radius: float
+    eye_frame_corner_radius: float
+    eye_ball_corner_radius: float
+
+    @staticmethod
+    def _parse_corner_radius(payload: Mapping[str, object], key: str, label: str) -> float:
+        raw_value = payload.get(key, 0)
+        if raw_value in (None, ""):
+            return 0.0
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{label}の角丸率は数値で指定してください。") from exc
+        if not 0.0 <= value <= 50.0:
+            raise ValueError(f"{label}の角丸率は0から50の間で指定してください。")
+        return value / 100.0
 
     @classmethod
-    def from_request(cls, req: request) -> "QRRequest":
-        payload: Dict[str, str] = req.get_json(force=True, silent=True) or {}
-        data = (payload.get("data") or "").strip()
+    def from_payload(cls, payload: Mapping[str, object]) -> "QRRequest":
+        data = str(payload.get("data") or "").strip()
         if not data:
             raise ValueError("入力テキストを指定してください。")
 
@@ -66,12 +87,24 @@ class QRRequest:
         if module_size <= 0:
             raise ValueError("モジュールサイズは正の数である必要があります。")
 
+        body_corner_radius = cls._parse_corner_radius(payload, "bodyCornerRadius", "Body")
+        eye_frame_corner_radius = cls._parse_corner_radius(payload, "eyeFrameCornerRadius", "Eye Frame")
+        eye_ball_corner_radius = cls._parse_corner_radius(payload, "eyeBallCornerRadius", "Eye Ball")
+
         return cls(
             data=data,
             error_correction=error_correction,
             border=border,
             module_size=module_size,
+            body_corner_radius=body_corner_radius,
+            eye_frame_corner_radius=eye_frame_corner_radius,
+            eye_ball_corner_radius=eye_ball_corner_radius,
         )
+
+    @classmethod
+    def from_request(cls, req: request) -> "QRRequest":
+        payload: Dict[str, object] = req.get_json(force=True, silent=True) or {}
+        return cls.from_payload(payload)
 
 
 def create_qr_code(data: str, error_correction: ErrorCorrection, border: int) -> qrcode.QRCode:
@@ -86,31 +119,63 @@ def create_qr_code(data: str, error_correction: ErrorCorrection, border: int) ->
     return qr
 
 
-def matrix_to_dxf(matrix: Tuple[Tuple[bool, ...], ...], module_size: float) -> io.BytesIO:
-    doc = ezdxf.new(setup=True)
-    msp = doc.modelspace()
+def matrix_to_dxf(
+    matrix: Tuple[Tuple[bool, ...], ...],
+    module_size: float,
+    body_corner_radius: float,
+    eye_frame_corner_radius: float,
+    eye_ball_corner_radius: float,
+) -> io.BytesIO:
+    dxf_text = qr_matrix_to_dxf(
+        matrix,
+        module_size=module_size,
+        body_corner_radius=module_size * body_corner_radius,
+        eye_frame_corner_radius=module_size * eye_frame_corner_radius,
+        eye_ball_corner_radius=module_size * eye_ball_corner_radius,
+    )
+    buffer = io.BytesIO(dxf_text.encode("utf-8"))
+    buffer.seek(0)
+    return buffer
 
+
+def render_qr_image(
+    matrix: Tuple[Tuple[bool, ...], ...],
+    body_corner_radius: float,
+    eye_frame_corner_radius: float,
+    eye_ball_corner_radius: float,
+    box_size: int = 10,
+) -> Image.Image:
     size = len(matrix)
+    image = Image.new("RGBA", (size * box_size, size * box_size), (255, 255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    eye_frame_modules, eye_ball_modules = finder_pattern_modules(matrix)
+
+    def _radius_for(x: int, y: int) -> float:
+        if (x, y) in eye_ball_modules:
+            ratio = eye_ball_corner_radius
+        elif (x, y) in eye_frame_modules:
+            ratio = eye_frame_corner_radius
+        else:
+            ratio = body_corner_radius
+        return max(0.0, min(ratio * box_size, box_size / 2.0))
+
     for y, row in enumerate(matrix):
         for x, cell in enumerate(row):
             if not cell:
                 continue
-            # 原点を左下に揃えるためにY座標を反転させる
-            x0 = x * module_size
-            y0 = (size - y - 1) * module_size
-            x1 = x0 + module_size
-            y1 = y0 + module_size
-            msp.add_lwpolyline(
-                [(x0, y0), (x1, y0), (x1, y1), (x0, y1)],
-                format="xy",
-                close=True,
-            )
+            left = x * box_size
+            top = y * box_size
+            right = left + box_size
+            bottom = top + box_size
+            radius = _radius_for(x, y)
+            if radius <= 0:
+                draw.rectangle((left, top, right, bottom), fill=(0, 0, 0, 255))
+            else:
+                draw.rounded_rectangle(
+                    (left, top, right, bottom), radius=radius, fill=(0, 0, 0, 255)
+                )
 
-    text_buffer = io.StringIO()
-    doc.write(stream=text_buffer)
-    buffer = io.BytesIO(text_buffer.getvalue().encode("utf-8"))
-    buffer.seek(0)
-    return buffer
+    return image
 
 
 def decode_data_url(data_url: str) -> Optional[bytes]:
@@ -203,7 +268,13 @@ def create_app() -> Flask:
             qr_request.border,
         )
         matrix = tuple(tuple(row) for row in qr_code.get_matrix())
-        buffer = matrix_to_dxf(matrix, qr_request.module_size)
+        buffer = matrix_to_dxf(
+            matrix,
+            qr_request.module_size,
+            qr_request.body_corner_radius,
+            qr_request.eye_frame_corner_radius,
+            qr_request.eye_ball_corner_radius,
+        )
         filename = "qr_code.dxf"
         if qr_request.data:
             filename = f"qr_{qr_request.data[:20].replace(' ', '_')}.dxf"
@@ -222,21 +293,13 @@ def create_app() -> Flask:
             payload = request.get_json(silent=True) or {}
         if not isinstance(payload, dict):
             payload = {}
-        data = (payload.get("data") or "").strip()
-        if not data:
-            return jsonify({"message": "入力テキストを指定してください。"}), 400
 
         try:
-            error_correction = ErrorCorrection(payload.get("errorCorrection", "M"))
-        except ValueError:
-            return jsonify({"message": "不明な誤り訂正レベルが指定されました。"}), 400
+            qr_request = QRRequest.from_payload(payload)
+        except ValueError as exc:
+            return jsonify({"message": str(exc)}), 400
 
-        try:
-            border = int(payload.get("border", 4))
-        except (TypeError, ValueError):
-            return jsonify({"message": "余白の値は整数で指定してください。"}), 400
-        if border < 0:
-            return jsonify({"message": "余白の値は0以上である必要があります。"}), 400
+        data = qr_request.data
 
         icon_bytes = None
         icon_data_url = payload.get("iconData")
@@ -254,8 +317,14 @@ def create_app() -> Flask:
         if not 5.0 <= icon_size_percent <= 40.0:
             return jsonify({"message": "アイコンサイズは5から40の間で指定してください。"}), 400
 
-        qr_code = create_qr_code(data, error_correction, border)
-        image = qr_code.make_image(fill_color="black", back_color="white").convert("RGBA")
+        qr_code = create_qr_code(data, qr_request.error_correction, qr_request.border)
+        matrix = tuple(tuple(row) for row in qr_code.get_matrix())
+        image = render_qr_image(
+            matrix,
+            qr_request.body_corner_radius,
+            qr_request.eye_frame_corner_radius,
+            qr_request.eye_ball_corner_radius,
+        )
 
         if icon_bytes:
             image = add_icon_to_image(image, icon_bytes, icon_size_percent / 100)
