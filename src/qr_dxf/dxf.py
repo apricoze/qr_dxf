@@ -49,8 +49,23 @@ def qr_matrix_to_dxf(
                 radius = eye_frame_radius
             else:
                 radius = body_radius if body_corner_radius is not None else default_radius
+            left_on = x > 0 and matrix[y][x - 1]
+            right_on = x + 1 < size and matrix[y][x + 1]
+            top_on = y > 0 and matrix[y - 1][x]
+            bottom_on = y + 1 < size and matrix[y + 1][x]
             entities.extend(
-                _module_polyline(x, y, size, module_size, radius, layer)
+                _module_polyline(
+                    x,
+                    y,
+                    size,
+                    module_size,
+                    radius,
+                    layer,
+                    left_on,
+                    right_on,
+                    top_on,
+                    bottom_on,
+                )
             )
     header = _dxf_header(layer)
     footer = _dxf_footer()
@@ -61,7 +76,18 @@ def _clamp_radius(module_size: float, radius: float) -> float:
     return max(0.0, min(radius, module_size / 2.0))
 
 
-def _module_polyline(x: int, y: int, size: int, module: float, radius: float, layer: str) -> List[str]:
+def _module_polyline(
+    x: int,
+    y: int,
+    size: int,
+    module: float,
+    radius: float,
+    layer: str,
+    left_on: bool,
+    right_on: bool,
+    top_on: bool,
+    bottom_on: bool,
+) -> List[str]:
     x0 = x * module
     y0 = (size - y - 1) * module
     x1 = x0 + module
@@ -70,13 +96,50 @@ def _module_polyline(x: int, y: int, size: int, module: float, radius: float, la
         points = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
         bulges = [0.0, 0.0, 0.0, 0.0]
     else:
-        r = radius
         k = math.tan(math.pi / 8.0)
-        points = [
-            (x0 + r, y1), (x1 - r, y1), (x1, y1 - r), (x1, y0 + r),
-            (x1 - r, y0), (x0 + r, y0), (x0, y0 + r), (x0, y1 - r),
-        ]
-        bulges = [0.0, k, 0.0, k, 0.0, k, 0.0, k]
+
+        top_exposed = not top_on
+        right_exposed = not right_on
+        bottom_exposed = not bottom_on
+        left_exposed = not left_on
+
+        tl_radius = radius if top_exposed and left_exposed else 0.0
+        tr_radius = radius if top_exposed and right_exposed else 0.0
+        br_radius = radius if bottom_exposed and right_exposed else 0.0
+        bl_radius = radius if bottom_exposed and left_exposed else 0.0
+
+        points: List[Tuple[float, float]] = []
+        bulges: List[float] = []
+
+        def _add_point(point: tuple[float, float], bulge: float) -> None:
+            if points and math.isclose(point[0], points[-1][0]) and math.isclose(point[1], points[-1][1]):
+                bulges[-1] = bulge
+            else:
+                points.append(point)
+                bulges.append(bulge)
+
+        # Top edge (left to right)
+        _add_point((x0 + tl_radius, y1), 0.0)
+        top_edge_end = x1 - tr_radius
+        _add_point((top_edge_end, y1), k if tr_radius > 0.0 else 0.0)
+        if tr_radius > 0.0:
+            _add_point((x1, y1 - tr_radius), 0.0)
+
+        # Right edge (top to bottom)
+        right_edge_end = y0 + br_radius
+        _add_point((x1, right_edge_end), k if br_radius > 0.0 else 0.0)
+        if br_radius > 0.0:
+            _add_point((x1 - br_radius, y0), 0.0)
+
+        # Bottom edge (right to left)
+        bottom_edge_end = x0 + bl_radius
+        _add_point((bottom_edge_end, y0), k if bl_radius > 0.0 else 0.0)
+        if bl_radius > 0.0:
+            _add_point((x0, y0 + bl_radius), 0.0)
+
+        # Left edge (bottom to top)
+        left_edge_end = y1 - tl_radius
+        _add_point((x0, left_edge_end), k if tl_radius > 0.0 else 0.0)
     return _lwpolyline(points, bulges, layer)
 
 
